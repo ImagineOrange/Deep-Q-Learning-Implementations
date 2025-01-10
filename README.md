@@ -36,7 +36,7 @@ Currently, the model is configured to utilize Metal Performance Shaders (MPS) --
 
 ---------------------------------------------------------------------------------------------------------------------------
 <ins>**To watch and evaluate an already-trained model:**</ins> 
-save the .tar, and copy the path into the 'agent_training_checkpoint' variable in the main function of the _eval.py script.
+download the .tar from the url (google drive) in the _model_url.txt document -- copy the path into the 'agent_training_checkpoint' variable in the main function of the _eval.py script, and then run the script. 
 
 
 
