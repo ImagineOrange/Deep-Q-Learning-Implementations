@@ -378,7 +378,7 @@ if __name__ == "__main__":
     #eval -------------------------------------------------- 
 
     #load path
-    agent_training_checkpoint = torch.load('/Users/ethancrouse/Desktop/rl_experiments/jan_7_framestack/CHEEMS_DQN_agent_episodes_33532.pth.tar')
+    agent_training_checkpoint = torch.load('--.TAR MODEL PATH HERE--')
     DQN_.load_state_dict(agent_training_checkpoint['state_dict'])
     DQN_.eval()
                  
