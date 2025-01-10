@@ -800,12 +800,4 @@ jan 7th experiment:
     -framestack now 6 not 4 --- more motion inference?
 '''
 
-
-
-
-
-
-
-
-
-
+#example
