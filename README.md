@@ -30,3 +30,18 @@ _I suggest creating a custom conda environment via command line and then install
 % python human_playable_snake.py
 
 ---------------------------------------------------------------------------------------------------------------------------
+<ins>**To Train:**</ins> 
+Run the _train.py script, I usually see results around 2-4 million frames. Check parameters -- .tar model parameters are saved into the working directory every 500_000 frames. 
+Currently, the model is configured to utilize Metal Performance Shaders (MPS) -- GPU accelerated training for mac. 
+
+---------------------------------------------------------------------------------------------------------------------------
+<ins>**To watch and evaluate an already-trained model:**</ins> 
+save the .tar, and copy the path into the 'agent_training_checkpoint' variable in the main function of the _eval.py script.
+
+
+
+
+
+
+
+
