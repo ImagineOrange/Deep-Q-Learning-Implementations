@@ -88,3 +88,14 @@ class Dueling_DoubleDQN(nn.Module):
             return torch.tensor(self.action)
         #else, run forward pass on observation
         return self.forward(observation)
+
+
+    #for evaluation: probabilistically generates a random action, so model doesn't get stuck
+    def random_action(self, observation):
+        p_random = 5000
+        random =  np.random.randint(1, p_random+1)
+        if p_random == random:
+            self.action = np.random.uniform(-1,0,4)
+            return torch.tensor(self.action)
+        else:
+            return self.forward(observation)
