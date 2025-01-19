@@ -19,10 +19,10 @@ class Environment_Snake:
                    disable, comment out pygame board code...will add flag later (1/11/25)
         ticks    : game ticks (frames played, default 0)
         n_games  : number of games played (default 0)
-
+        animate  : animation slows training, enable for eval
     '''
 
-    def __init__(self,pygame,width,height,cellsize,n_foods,fr,ticks,n_games):
+    def __init__(self,pygame,width,height,cellsize,n_foods,fr,ticks,n_games,animate):
         #game elements
         self.pygame = pygame
         self.width = width
@@ -30,6 +30,7 @@ class Environment_Snake:
         self.cellsize = cellsize
         self.fr = fr
         self.n_foods = n_foods
+        self.animate = animate
        
         #game stats
         self.session_highscore = 0
@@ -47,9 +48,11 @@ class Environment_Snake:
     def initialize_board(self):
         #initialize pygame and surface animation
         self.pygame.init() 
-        self.surface = pygame.display.set_mode(((self.width+1)*self.cellsize,
-                                                (self.height+1)*self.cellsize)) 
-        self.pygame.display.set_caption(' ')
+        
+        if self.animate == True: 
+            self.surface = pygame.display.set_mode(((self.width+1)*self.cellsize,
+                                                    (self.height+1)*self.cellsize)) 
+            self.pygame.display.set_caption(' ')
     
         
     #init / reset board
@@ -74,7 +77,9 @@ class Environment_Snake:
         self.board[self.snake_head.get('head')[0],
                    self.snake_head.get('head')[1]] = 1
 
-        self.pygame.display.set_caption(f"SESSION HIGHSCORE: {self.session_highscore}  -  GAMES PLAYED: {self.n_games}")
+        
+        if self.animate == True:
+            self.pygame.display.set_caption(f"SESSION HIGHSCORE: {self.session_highscore}  -  GAMES PLAYED: {self.n_games}")
 
         #spawn initial food 
         self.spawn_food()
@@ -167,24 +172,27 @@ class Environment_Snake:
 
     #draw board
     def draw_board(self):
-        #iterate through every cell in grid 
-        for r, c in np.ndindex(self.width+1,self.height+1): #+1 for wall pads
-            if self.board[r,c] != 4:
-                if self.board[r,c] == 1: #head
-                    col = (220,20,60)
-                elif self.board[r,c] == 2: #body
-                    col = (255, 80 + random.randint(0,30), 3 + random.randint(0,30))
-                elif self.board[r,c] == 3: #food
-                    col = (111, 153, 64)
-                elif self.board[r,c] == 0:
-                    col = (22, 18, 64)
-                self.pygame.draw.rect(self.surface, col,(r*self.cellsize, c*self.cellsize, 
-                                                           self.cellsize-.9, self.cellsize-.9)) #draw new cell
-            else: #wall
-                col = (0,139,139)
-                self.pygame.draw.rect(self.surface, col,(r*self.cellsize, c*self.cellsize, 
-                                                                self.cellsize, self.cellsize)) #draw new cell
-        pygame.display.update() #updates display from new .draw in update function
+        if self.animate == True:
+            #iterate through every cell in grid 
+            for r, c in np.ndindex(self.width+1,self.height+1): #+1 for wall pads
+                if self.board[r,c] != 4:
+                    if self.board[r,c] == 1: #head
+                        col = (220,20,60)
+                    elif self.board[r,c] == 2: #body
+                        col = (255, 80 + random.randint(0,30), 3 + random.randint(0,30))
+                    elif self.board[r,c] == 3: #food
+                        col = (111, 153, 64)
+                    elif self.board[r,c] == 0:
+                        col = (22, 18, 64)
+                    self.pygame.draw.rect(self.surface, col,(r*self.cellsize, c*self.cellsize, 
+                                                            self.cellsize-.9, self.cellsize-.9)) #draw new cell
+                else: #wall
+                    col = (0,139,139)
+                    self.pygame.draw.rect(self.surface, col,(r*self.cellsize, c*self.cellsize, 
+                                                                    self.cellsize, self.cellsize)) #draw new cell
+            pygame.display.update() #updates display from new .draw in update function
+        else:
+            pass
 
     #spawn food
     def spawn_food(self):
@@ -247,7 +255,8 @@ class Environment_Snake:
         if self.segments > self.session_highscore:
                 self.session_highscore = self.segments
 
-        #self.pygame.display.set_caption(f"SESSION HIGHSCORE: {self.session_highscore}  -  GAMES PLAYED: {self.n_games}")
+        if self.animate == True:
+            self.pygame.display.set_caption(f"SESSION HIGHSCORE: {self.session_highscore}  -  GAMES PLAYED: {self.n_games}")
 
     #REPORT OBSERVATION
     def get_observation(self):
