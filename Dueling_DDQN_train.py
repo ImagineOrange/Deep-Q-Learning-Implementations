@@ -17,8 +17,12 @@ from torchsummary import summary
 
 #class imports
 from Dueling_DoubleDQN_model import Dueling_DoubleDQN
-from Environment_snake import Environment_Snake
+from Environment_Snake import Environment_Snake
 from Uniform_Experience_Replay import Uniform_Experience_Replay 
+
+#exit handling
+import signal
+import sys
 
 #use MPS
 torch.cuda.is_available = lambda : False
@@ -28,9 +32,15 @@ print(f"\nDevice used: {device} \n")
 
 #------------------ Helper functions ------------------
 
+#handle user's exit from training loop
+def signal_handler(sig, frame):
+    global stop_training
+    print("\nSoft shutdown initiated. Finishing current epoch...")
+    stop_training = True
+
 
 #save model params when called
-def save_model_checkpoints(online_DDQN, target_DDQN, optimizer,episodes):
+def save_model_checkpoints(online_DDQN, target_DDQN, optimizer, episodes):
     
     #create state dictionaries
     DQN_state = {
@@ -46,8 +56,8 @@ def save_model_checkpoints(online_DDQN, target_DDQN, optimizer,episodes):
         }
 
     print('... Saving DQN / Target DQN model parameters')
-    DQN_filename = f'CHEEMS_DQN_agent_episodes_{episodes}.pth.tar'
-    DQN_target_filename = f'CHEEMS_DQN_target_chkpt_episodes_{episodes}.pth.tar'
+    DQN_filename = f'DQN_agent_episodes_{episodes}.pth.tar'
+    DQN_target_filename = f'DQN_target_chkpt_episodes_{episodes}.pth.tar'
 
     torch.save(DQN_state,DQN_filename)
     torch.save(DQN_target_state,DQN_target_filename)
@@ -123,26 +133,6 @@ def plot_training_statistics(running_rewards,
     plt.xlabel('Epochs (1000))')
     plt.ylabel('# of Food')
     plt.title('Highscore over Training')
-
-
-#Evironment class, contains all methods to render and play snake 
-class Environment_Snake:
-    '''
-    Game environment for Reinforcement Learning Experiments
-    Args:
-        animate  : Boolean, animating board results in slower training
-        pygame   : pygame
-        width    : playable gameboard width 
-        height   : playable gameboard height
-        cellsize : size for each animated game pixel
-        n_foods  : number of foods to place in game environment, if n_foods > 0 one food is 
-                  removed every 100_000 frames until n_foods = 1
-        fr       : animation framerate **note** training much slower with animation enabled, to 
-                   disable, comment out pygame board code...will add flag later (1/11/25)
-        ticks    : game ticks (frames played, default 0)
-        n_games  : number of games played (default 0)
-    '''
-
     
 if __name__ == "__main__":
 
@@ -192,7 +182,7 @@ if __name__ == "__main__":
                       fr = 0,
                       ticks = frame,
                       n_games = games_played,
-                      animate=True
+                      animate=False
                      )
     
     Environment.initialize_board()
@@ -226,12 +216,15 @@ if __name__ == "__main__":
 
 
     # ------------------ main play and training loop ------------------ #
-   
 
+    #exit logic
+    stop_training = False
+    # Register the signal handler ()
+    signal.signal(signal.SIGINT, signal_handler)
    
-    RUNNING = True
+   
     try:
-        while RUNNING:     
+        while not stop_training:     
             #add frame
             frame += 1
             
@@ -294,12 +287,13 @@ if __name__ == "__main__":
 
             #Save models
             if frame % save_every_n_frames == 0:
-                save_model_checkpoints(online_DDQN, target_DDQN, optimizer,games_played)
+                save_model_checkpoints(online_DDQN, target_DDQN, optimizer, games_played)
+                
             
             
             
             #reporting
-            if frame % 1000 == 0:
+            if frame % 10_000 == 0:
                 #running reward, reporting, and training termination conditionals
                 total_reward.append(delta_reward)
         
@@ -316,10 +310,13 @@ if __name__ == "__main__":
                 
                 #print summary
                 print(f"Frame: {frame} --- Games Played : {games_played} --- Running Reward : {running_reward}")
-                print(f"Training completed in: {timeit.default_timer() - start_time} seconds, device used: {device}")
+                print(f"Training completed in: {round(timeit.default_timer() - start_time)} seconds, device used: {device}")
                 print(f"Epsilon: {online_DDQN.epsilon}")
                 print(f"Running Loss: {running_loss}")
-                print(f'Max q: {(online_DDQN.forward(state_tensor)).max()} Min q: {(online_DDQN.forward(state_tensor)).min()} \n')
+                print(f'Max q: {(online_DDQN.forward(state_tensor).max())} Min q: {(online_DDQN.forward(state_tensor).min())}')
+                print(f"Session Highscore: {Environment.session_highscore}")
+                print('----------------------------------------------------------------')
+                print("Press ctrl+c to end training softly and save model parameters...\n\n")
                 
 
             # ------------------ learning loop ------------------ #
@@ -398,10 +395,24 @@ if __name__ == "__main__":
             #final board draw, if animate = True
             Environment.draw_board()   
 
+    #error handling
+    except Exception as e:
+            print(f"Error occurred: {e}")
+
     finally:
         plot_training_statistics(running_rewards, running_qs_min, running_qs_max, foods_eaten, epsilons, n_foods, highscore)
-        plt.show()
+        #save_model_checkpoints(online_DDQN, target_DDQN, optimizer, games_played)
+        
+        print(f"Training loop has ended. Cleaning up resources...",
+               "\nFinal Model parameters saved... ")
+
+        #final 
+        #plt.show()
         pygame.quit()
+    
+              
+
+    
 
 
 
