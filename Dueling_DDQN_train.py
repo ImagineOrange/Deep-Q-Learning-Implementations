@@ -137,7 +137,7 @@ def plot_training_statistics(running_rewards,
 if __name__ == "__main__":
 
     #init Environment and Agent params
-    animate = True
+    animate = False
     learning_rate = 0.001
     gamma = 0.99         
     epsilon_start = .75
@@ -158,8 +158,8 @@ if __name__ == "__main__":
     frame_stack = 6
 
     #loss/reward metrics
-    total_reward = deque([],maxlen=1000)
-    total_loss = deque([0],maxlen=1000)
+    total_reward = deque([],maxlen=5000)
+    total_loss = deque([0],maxlen=5000)
     
     #containers
     running_losses, running_qs_max, running_qs_min, running_rewards = [], [], [], []
@@ -182,7 +182,7 @@ if __name__ == "__main__":
                       fr = 0,
                       ticks = frame,
                       n_games = games_played,
-                      animate=False
+                      animate=animate
                      )
     
     Environment.initialize_board()
@@ -294,9 +294,7 @@ if __name__ == "__main__":
             
             #reporting
             if frame % 10_000 == 0:
-                #running reward, reporting, and training termination conditionals
                 total_reward.append(delta_reward)
-        
                 #np functions don't play nice with the mps.tensor types...
                 running_reward = (sum(total_reward) / len(total_reward))
                 running_loss = (sum(total_loss) / len(total_loss))
@@ -401,13 +399,13 @@ if __name__ == "__main__":
 
     finally:
         plot_training_statistics(running_rewards, running_qs_min, running_qs_max, foods_eaten, epsilons, n_foods, highscore)
-        #save_model_checkpoints(online_DDQN, target_DDQN, optimizer, games_played)
+        save_model_checkpoints(online_DDQN, target_DDQN, optimizer, games_played)
         
         print(f"Training loop has ended. Cleaning up resources...",
                "\nFinal Model parameters saved... ")
 
-        #final 
-        #plt.show()
+        #matplotlib and pygame spindown
+        plt.show()
         pygame.quit()
     
               
