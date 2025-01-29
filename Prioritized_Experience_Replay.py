@@ -14,6 +14,7 @@ class SumTree:
         self.data = np.zeros(capacity, dtype=object)  # Holds experiences
         self.data_pointer = 0
         self.max_priority = 0
+       
 
     def add(self, priority, data):
         tree_index = self.data_pointer + self.capacity - 1
@@ -76,15 +77,17 @@ class PrioritizedExperienceReplay:
         beta_start : Importance-Sampling Correction, corrects prioritized sampling bias- 0: ignores bias, 1: removes all bias
         beta_increment_per_sampling : increments (+) beta per sample, eventually to 1
     '''
-    #                                                      anneals in ~7.7 million frames
-    def __init__(self, capacity, alpha=.4, beta_start=0.6, beta_increment_per_sampling=0.00000013):
+    #                                                      anneals in ~14 million frames
+    def __init__(self, capacity, alpha=.4, beta_start=0.6, beta_increment_per_sampling=0.000000035, alpha_increment_per_sampling=0.0000000624):
         self.tree = SumTree(capacity)
         self.alpha = alpha
         self.beta = beta_start
-        self.beta_increment_per_sampling = beta_increment_per_sampling #increment over 1_000_000 frames
+        self.beta_increment_per_sampling = beta_increment_per_sampling 
+        self.alpha_increment_per_sampling = alpha_increment_per_sampling
         self.epsilon = .01  # Small value to avoid zero priorities
         self.capacity = capacity
         self.update_counter = 0 #init update counter for periodic max_priority calculation
+        self.recalculate_schedule = 20_000 #recalculate max priority
 
     def add(self, experience, td_error=None):
         # Use max_priority for initialization if td_error is not provided
@@ -118,6 +121,7 @@ class PrioritizedExperienceReplay:
         is_weights /= is_weights.max()  # Normalize weights
 
         self.beta = min(1.0, self.beta + self.beta_increment_per_sampling)
+        self.alpha = min(.7, self.beta + self.alpha_increment_per_sampling)
 
         states_1, states_2, actions, rewards, dones = zip(*batch)
         return (
@@ -135,14 +139,7 @@ class PrioritizedExperienceReplay:
             priority = (abs(td_error) + self.epsilon) ** self.alpha
             self.tree.update(idx, priority)
         
-        #periodic scan to update maximum priorities, if priorities reduce over time
-        self.update_counter += 1
-        if self.update_counter % (self.capacity // 10) == 0:  # Recalculate every 10% of the buffer size
-            # Update max_priority based on the updated priorities
-            print("Recalculating buffer maximum priority...")
-            self.tree.max_priority = max(self.tree.tree[-self.capacity:]) #slow
-            print('Done.')
-            
+    
 
 
 

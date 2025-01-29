@@ -8,26 +8,30 @@ start_time = timeit.default_timer()
 #memory replay data structures
 from collections import deque, namedtuple
 import matplotlib.pyplot as plt
+plt.style.use('dark_background')
 
 #agent imports
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchsummary import summary
+from copy import deepcopy
 
 #class imports
 from Dueling_DoubleDQN_model import Dueling_DoubleDQN
 from Environment_Snake import Environment_Snake
-from Uniform_Experience_Replay import Uniform_Experience_Replay 
+from Prioritized_Experience_Replay import SumTree, PrioritizedExperienceReplay
+from Uniform_Experience_Replay import Uniform_Experience_Replay
+from TrainingStatisticsPlotter import TrainingStatisticsPlotter
 
 #exit handling
 import signal
 import sys
 
 #use MPS
-torch.cuda.is_available = lambda : False
 device = torch.device('cuda' if torch.cuda.is_available() else torch.device('mps'))
 print(f"\nDevice used: {device} \n")
+
 
 
 #------------------ Helper functions ------------------
@@ -63,76 +67,6 @@ def save_model_checkpoints(online_DDQN, target_DDQN, optimizer, episodes):
     torch.save(DQN_target_state,DQN_target_filename)
     print("... SAVED")
 
-
-#plot training stats
-def plot_training_statistics(running_rewards, 
-                            running_qs_min, 
-                            running_qs_max, 
-                            foods_eaten, 
-                            epsilons, 
-                            n_foods, 
-                            highscore):
-    
-    plt.style.use('dark_background')
-    
-    #Reward
-    x_ = np.arange(0,np.array(running_rewards).shape[0])
-    y = np.array(np.array(running_rewards))
-    plt.figure(figsize=(12,7))
-    plt.scatter(x_,y,s=4,c='r',marker='+')
-    plt.xlabel('Epochs (1000)')
-    plt.ylabel('Average Reward')
-    plt.title('Sliding-Window: Reward Training Epochs')
-
-    #Qs
-    x_ = np.arange(0,np.array(running_qs_min).shape[0])
-    y = np.array(np.array(running_qs_min))
-    #min
-    plt.figure(figsize=(12,7))
-    plt.scatter(x_,y,s=4,c='b',marker='+')
-    x_ = np.arange(0,np.array(running_qs_max).shape[0])
-    y = np.array(np.array(running_qs_max))
-    #max
-    plt.scatter(x_,y,s=4,c='r',marker='+')
-    plt.xlabel('Epochs (1000)')
-    plt.ylabel('Q Values')
-    plt.title('Q values over Training Epochs')
-
-    #foods
-    x_ = np.arange(0,np.array(foods_eaten).shape[0])
-    y = np.array(np.array(foods_eaten))
-    plt.figure(figsize=(12,7))
-    plt.scatter(x_,y,s=4,c='b',marker='+')
-    plt.xlabel('Game (every 100)')
-    plt.ylabel('Foods Eaten Upon Death')
-    plt.title('Foods Eaten Per Game')
-
-    #epsilons
-    x_ = np.arange(0,np.array(epsilons).shape[0])
-    y = np.array(np.array(epsilons))
-    plt.figure(figsize=(12,7))
-    plt.scatter(x_,y,s=4,c='m',marker='+')
-    plt.xlabel('Epochs (1000))')
-    plt.ylabel('Epsilon')
-    plt.title('Epsilon Values')
-
-    #n_foods
-    x_ = np.arange(0,np.array(n_foods).shape[0])
-    y = np.array(np.array(n_foods))
-    plt.figure(figsize=(12,7))
-    plt.scatter(x_,y,s=4,c='c',marker='+')
-    plt.xlabel('Epochs (1000))')
-    plt.ylabel('# of Food')
-    plt.title('Number of Food During Training')
-
-    #highscore
-    x_ = np.arange(0,np.array(highscore).shape[0])
-    y = np.array(np.array(highscore))
-    plt.figure(figsize=(12,7))
-    plt.scatter(x_,y,s=4,c='c',marker='+')
-    plt.xlabel('Epochs (1000))')
-    plt.ylabel('# of Food')
-    plt.title('Highscore over Training')
     
 if __name__ == "__main__":
 
@@ -144,26 +78,34 @@ if __name__ == "__main__":
     epsilon_min = 0.0001
     momentum = 0.00
     
+    #'Uniform' or 'Prioritized' replay buffer
+    buffer_type = 'Prioritized'
+
     #training params
     frame =  0
     games_played =  0
-    replay_buffer_length = 1_500_000
+    replay_buffer_length = 800_000
     batch_size = 128
     update_every = 8
     training_after = 10_000 + frame
-    save_every_n_frames = 500_000
+    save_every_n_frames = 200_000
     sync_target_frames = 5000
+    report_every_n_frames = 1000
+    plot_distributions_frames = 10_000
     
-    #how many frames deep the input to the model is, i.e. [8] x width x height
+
+    #how many frames deep the input to the model is, e.g. [8] x width x height
     frame_stack = 6
 
     #loss/reward metrics
     total_reward = deque([],maxlen=5000)
     total_loss = deque([0],maxlen=5000)
+    PER_priorities = deque([],maxlen=300)
+    init_priority = 1 #initialize first priorities to 1, before first init priority scheduler
     
     #containers
     running_losses, running_qs_max, running_qs_min, running_rewards = [], [], [], []
-    epsilons, n_foods, foods_eaten, highscore = [], [], [], []
+    epsilons, n_foods, foods_eaten, highscore, PER_beta, = [], [], [], [] , [] 
 
     #state / experience
     state_space = deque([],maxlen=frame_stack)
@@ -194,25 +136,27 @@ if __name__ == "__main__":
                                 epsilon_start = epsilon_start,
                                 epsilon_min = epsilon_min)
     
-    target_DDQN = Dueling_DoubleDQN(input_shape = [frame_stack,Environment.width+1,
-                                      Environment.height+1],
-                                      n_actions = 4,
-                                      epsilon_start = epsilon_start,
-                                      epsilon_min = epsilon_min)    
+    target_DDQN =  deepcopy(online_DDQN)
 
-    #RMSprop more stable for non-stationary
+    #RMSprop more stable for non-stationary data
     optimizer = optim.RMSprop(online_DDQN.parameters(), 
                               lr = learning_rate, 
                               momentum = momentum)
+    
+    #visualize training metrics
+    plotter = TrainingStatisticsPlotter()
 
     #initialize experience replay buffer 
-    Buffer = Uniform_Experience_Replay(replay_buffer_length)
+    if buffer_type == 'Prioritized':
+        Buffer = PrioritizedExperienceReplay(replay_buffer_length)
+    elif buffer_type == 'Uniform':
+        Buffer = Uniform_Experience_Replay(replay_buffer_length)
 
     #summary of model
     print(online_DDQN)
     print('\n')
     print(f'\n{summary(online_DDQN,(frame_stack,Environment.width+1,Environment.height+1))}\n')
-
+    print(f'\nReplay Buffer type: {buffer_type}\n\n\n')
 
 
     # ------------------ main play and training loop ------------------ #
@@ -231,7 +175,7 @@ if __name__ == "__main__":
             #get game state @ s ^ t-1
             observation_pre = Environment.get_observation()
             
-            #initialize pre and post framestack observations for Experience obj, clean this up ***
+            #initialize pre and post framestack observations for Experience object
             pre_framestack = np.array(state_space)[0:frame_stack]
             
             #first few actions of game, need to fill up state space
@@ -280,49 +224,33 @@ if __name__ == "__main__":
 
                 #Experience
                 ex_ = experience(pre_framestack,post_framestack,action,delta_reward,done_flag)
-                #Append experience to experience replay buffer
-                Buffer.append(ex_)
-            
+                
+                #if using Uniform Experience Replay, just append experience alone at this step
+                if isinstance(Buffer, Uniform_Experience_Replay):
+                    #Append experience to experience replay buffer
+                    Buffer.append(ex_)
+                    #gather minibatch 
+                    states_1, states_2, actions, rewards, dones = Buffer.sample(batch_size)
+                
+                #if using Prioritized Experience Replay, initialize add with delta reward
+                elif isinstance(Buffer, PrioritizedExperienceReplay):
+                    #initialize priorities as the maximum priority in the tree, ensuring sampling at least once
+                    Buffer.add(ex_,init_priority) #ex_ without TD means priority default is maximum_priority in Buffer.tree
+                    # Sample a minibatch
+                    states_1, states_2, actions, rewards, dones, is_weights, idxs = Buffer.sample(batch_size)
+                    
+                    #record PER sampling priorities for sampled transitions
+                    priorities = Buffer.tree.tree[idxs]  # Leaf node priorities
+                    PER_priorities.append(priorities)
+
+
+            #append reward signal to total_reward, in order to calculate running reward during training
             total_reward.append(delta_reward)
 
-            #Save models
-            if frame % save_every_n_frames == 0:
-                save_model_checkpoints(online_DDQN, target_DDQN, optimizer, games_played)
-                
-            
-            
-            
-            #reporting
-            if frame % 10_000 == 0:
-                total_reward.append(delta_reward)
-                #np functions don't play nice with the mps.tensor types...
-                running_reward = (sum(total_reward) / len(total_reward))
-                running_loss = (sum(total_loss) / len(total_loss))
-                running_losses.append(running_loss)
-                running_rewards.append(running_reward)
-                running_qs_min.append((online_DDQN.forward(state_tensor)).detach().numpy().min())
-                running_qs_max.append((online_DDQN.forward(state_tensor)).detach().numpy().max())
-                highscore.append(Environment.session_highscore)
-                epsilons.append(online_DDQN.epsilon)
-                n_foods.append(Environment.n_foods)
-                
-                #print summary
-                print(f"Frame: {frame} --- Games Played : {games_played} --- Running Reward : {running_reward}")
-                print(f"Training completed in: {round(timeit.default_timer() - start_time)} seconds, device used: {device}")
-                print(f"Epsilon: {online_DDQN.epsilon}")
-                print(f"Running Loss: {running_loss}")
-                print(f'Max q: {(online_DDQN.forward(state_tensor).max())} Min q: {(online_DDQN.forward(state_tensor).min())}')
-                print(f"Session Highscore: {Environment.session_highscore}")
-                print('----------------------------------------------------------------')
-                print("Press ctrl+c to end training softly and save model parameters...\n\n")
-                
 
             # ------------------ learning loop ------------------ #
             if frame % update_every == 0 and frame > training_after:
-                
-                #gather minibatch 
-                states_1, states_2, actions, rewards, dones = Buffer.sample(batch_size)
-                
+        
                 #unpack data --- in the case that a GPU is available, data will be loaded to GPU and graph computed there
                 pre_states = torch.tensor(states_1).to(device)
                 post_states = torch.tensor(states_2).to(device)
@@ -336,6 +264,7 @@ if __name__ == "__main__":
                 online_DDQN = online_DDQN.to(device)
                 target_DDQN = target_DDQN.to(device)
 
+
                 #inspired by Maxim Lapan
                 #https://tinyurl.com/2s44tepw
 
@@ -347,7 +276,7 @@ if __name__ == "__main__":
                 
                 #   2. 
                 #   We need our target q-values for the same state/action pairs we just gathered
-                #   We use the target DQN to avoid a shifting target when backpropagating error gradient
+                #   We use the target DQN to avoid a shifting target when backpropagating error gradient (Double DQN)
                 #   For DDQN, we evaluate the greedy-policy with our online network and then use the selected action to estimate Qs-
                 #   using our target network 
             
@@ -365,14 +294,21 @@ if __name__ == "__main__":
                 target_Q_values = target_Q_values.detach()
                 
                 #   3.
-                #   calculate expected state-actiom values using the bellman equation 
-                #   this is effectively our 'y' for our mean-squared error loss function
-               
+                #   calculate expected state-action values using the bellman equation 
+                #   this is effectively our 'y' for our mean-squared error loss function, and incorporates feedback from the environment
                 target_Q_values = target_Q_values * gamma + rewards
                 
+                #Handle loss according to chosen replay method
                 #   4. 
                 #   calculate Huber loss - less sensitive to outliers - effectively the Temporal-Difference loss
-                loss = nn.HuberLoss()(online_Q_values , target_Q_values)
+                if isinstance(Buffer, Uniform_Experience_Replay):
+                    loss = nn.HuberLoss()(online_Q_values , target_Q_values)
+                
+                #   Huber loss, with importance sampling correction (see paper)
+                elif isinstance(Buffer, PrioritizedExperienceReplay):
+                    # Compute loss with importance-sampling weights
+                    is_weights_tensor = torch.tensor(is_weights, dtype=torch.float32).to(device)
+                    loss = (nn.HuberLoss(reduction="none")(online_Q_values, target_Q_values) * is_weights_tensor).mean()
                 
                 #   5.
                 #   backpropagate error of loss function
@@ -381,15 +317,73 @@ if __name__ == "__main__":
                 optimizer.step()
                 total_loss.append(loss.detach())
 
+                #   6.
+                #   if using PER, update the priorities of experiences based on computed TD:
+                if isinstance(Buffer, PrioritizedExperienceReplay):
+                    # Update priorities in the buffer
+                    td_errors = torch.abs(online_Q_values - target_Q_values).detach().cpu().numpy()
+                    Buffer.update_priorities(idxs, td_errors)
+
                 #seems essential to load these models back to CPU, for gameplay outside of training loop. 
                 online_DDQN = online_DDQN.to('cpu')
                 
 
+            # ------------------ iterative training logic ------------------ #
             #iteratvely update target net values to better estimate target values
             if frame % sync_target_frames == 0 and frame > training_after + 1000:
                 target_DDQN.load_state_dict(online_DDQN.state_dict())
-    
 
+            #Save models
+            if frame % save_every_n_frames == 0:
+                save_model_checkpoints(online_DDQN, target_DDQN, optimizer, games_played)
+
+            #save the sampled priority distributions to track PER evolution
+            if frame % plot_distributions_frames == 0:
+                #Visualize the sampling distribution for the PER
+                plotter.sampled_priority_distributions(PER_priorities,frame,Buffer)
+            
+            #dynamically adjust Buffer max_priority for new experience init
+            if frame % Buffer.recalculate_schedule == 0:
+                #flatten 
+                recent_priorities = [priority for sublist in PER_priorities for priority in sublist]
+                window_mean_priority = sum(recent_priorities) / len(recent_priorities)
+                init_priority = window_mean_priority
+                print(f"New Init Priority: {init_priority}")
+                
+                
+                
+                
+            #training progress reporting
+            if frame % report_every_n_frames == 0:
+                total_reward.append(delta_reward)
+                #np functions don't play nice with the mps.tensor types...
+                running_reward = (sum(total_reward) / len(total_reward))
+                running_loss = (sum(total_loss) / len(total_loss))
+                running_losses.append(running_loss)
+                running_rewards.append(running_reward)
+                running_qs_min.append((online_DDQN.forward(state_tensor)).detach().numpy().min())
+                running_qs_max.append((online_DDQN.forward(state_tensor)).detach().numpy().max())
+                highscore.append(Environment.session_highscore)
+                epsilons.append(online_DDQN.epsilon)
+                n_foods.append(Environment.n_foods)
+                PER_beta.append(Buffer.beta)
+
+                #track PER buffer sampling distribution
+                mean_priority = np.mean(PER_priorities[-1])
+                max_priority = np.max(PER_priorities[-1])
+                min_priority = np.min(PER_priorities[-1])
+                
+                #print summary
+                print(f"\n\n\nFrame: {frame} --- Games Played : {games_played} --- Running Reward : {running_reward}")
+                print(f"Training completed in: {round(timeit.default_timer() - start_time)} seconds, device used: {device}")
+                print(f"Epsilon: {online_DDQN.epsilon}")
+                print(f"Running Loss: {running_loss}")
+                print(f'Max q: {(online_DDQN.forward(state_tensor).max())} Min q: {(online_DDQN.forward(state_tensor).min())}')
+                print(f"PER Sampling Priorities in most recent Sample: - Mean: {mean_priority:.4f}, Max: {max_priority:.4f}, Min: {min_priority:.4f}, Buffer Max Priority: {Buffer.tree.max_priority}")
+                print(f"Session Highscore: {Environment.session_highscore}")
+                print('----------------------------------------------------------------')
+                print("Press ctrl+c to end training softly and save model parameters...")
+            
             #final board draw, if animate = True
             Environment.draw_board()   
 
@@ -398,23 +392,18 @@ if __name__ == "__main__":
             print(f"Error occurred: {e}")
 
     finally:
-        plot_training_statistics(running_rewards, running_qs_min, running_qs_max, foods_eaten, epsilons, n_foods, highscore)
-        save_model_checkpoints(online_DDQN, target_DDQN, optimizer, games_played)
+        #Plot training stats
+        plotter.plot_all(running_rewards, running_qs_min, running_qs_max, foods_eaten, epsilons, n_foods, highscore, PER_beta)
+        #save_model_checkpoints(online_DDQN, target_DDQN, optimizer, games_played)
+        plotter.sampled_priority_distributions(PER_priorities,frame,Buffer)
         
         print(f"Training loop has ended. Cleaning up resources...",
                "\nFinal Model parameters saved... ")
 
         #matplotlib and pygame spindown
-        plt.show()
+        #plt.show()
         pygame.quit()
     
-              
-
-    
-
-
-
-
 
 
 

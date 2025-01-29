@@ -79,7 +79,6 @@ class TrainingStatisticsPlotter:
         plt.title(f'Transition Priority Sampling Distribution at Frame {frame} | Beta:{round(Buffer.beta,3)} | Alpha: {Buffer.alpha} | Max Priority: {Buffer.tree.max_priority}')
         plt.xlabel('Priority')
         plt.ylabel('Frequency')
-        plt.legend(loc='upper right')
 
         # Save the combined figure
         plt.savefig(f'Sampling_distribution_combined_{frame}.png')
