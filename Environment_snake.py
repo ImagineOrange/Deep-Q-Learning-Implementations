@@ -14,9 +14,8 @@ class Environment_Snake:
         height   : playable gameboard height
         cellsize : size for each animated game pixel
         n_foods  : number of foods to place in game environment, if n_foods > 0 one food is 
-                  removed every 100_000 frames until n_foods = 1
-        fr       : animation framerate **note** training much slower with animation enabled, to 
-                   disable, comment out pygame board code...will add flag later (1/11/25)
+                   removed every 100_000 frames until n_foods = 1
+        fr       : animation framerate **note** training much slower with animation enabled
         ticks    : game ticks (frames played, default 0)
         n_games  : number of games played (default 0)
         animate  : animation slows training, enable for eval
@@ -179,13 +178,13 @@ class Environment_Snake:
                     if self.board[r,c] == 1: #head
                         col = (220,20,60)
                     elif self.board[r,c] == 2: #body
-                        col = (255, 80 + random.randint(0,30), 3 + random.randint(0,30))
+                        col = (65, 105 + random.randint(0,30), 225 + random.randint(0,30))
                     elif self.board[r,c] == 3: #food
-                        col = (111, 153, 64)
+                        col = (143,196,54)
                     elif self.board[r,c] == 0:
                         col = (22, 18, 64)
                     self.pygame.draw.rect(self.surface, col,(r*self.cellsize, c*self.cellsize, 
-                                                            self.cellsize-.9, self.cellsize-.9)) #draw new cell
+                                                                    self.cellsize-1, self.cellsize-1)) #draw new cell
                 else: #wall
                     col = (0,139,139)
                     self.pygame.draw.rect(self.surface, col,(r*self.cellsize, c*self.cellsize, 
